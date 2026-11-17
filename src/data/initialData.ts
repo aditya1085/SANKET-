@@ -1,0 +1,384 @@
+import {
+  AlertEvent,
+  AppSettings,
+  HealthStatus,
+  Machine,
+  ScenarioDefinition,
+  SensorReading,
+} from '../types/sanket';
+
+function buildInitialReadings(
+  baseVib: number,
+  vibJitter: number,
+  vibDrift: number,
+  baseTemp: number,
+  tempJitter: number,
+  tempDrift: number,
+  baseAcoustic: number,
+  acousticDrift: number,
+  baseCurrent: number,
+  currentDrift: number,
+  finalCondition: HealthStatus,
+  count = 20
+): SensorReading[] {
+  const now = Date.now();
+  const readings: SensorReading[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const progress = (count - 1 - i) / Math.max(1, count - 1);
+    const wave = Math.sin((count - i) * 0.7) * vibJitter * 0.65;
+    const micro = Math.cos((count - i) * 1.3) * vibJitter * 0.35;
+    const vib = Number(
+      Math.max(0.2, baseVib + wave + micro + progress * vibDrift).toFixed(2)
+    );
+    const tempWave = Math.sin((count - i) * 0.45) * tempJitter;
+    const temp = Number(
+      (baseTemp + tempWave + progress * tempDrift).toFixed(1)
+    );
+    const acoustic = Number(
+      (baseAcoustic + Math.sin((count - i) * 0.6) * 0.9 + progress * acousticDrift).toFixed(1)
+    );
+    const current = Number(
+      (baseCurrent + Math.cos((count - i) * 0.5) * 0.2 + progress * currentDrift).toFixed(1)
+    );
+    const accel = Number((vib * 0.14 + 0.08).toFixed(2));
+    const readingCondition: HealthStatus =
+      finalCondition === 'WARNING' && i < 4 ? 'WARNING' : 'NORMAL';
+
+    readings.push({
+      timestamp: new Date(now - i * 15_000).toISOString(),
+      vibrationMmS: vib,
+      temperatureC: temp,
+      acousticDb: acoustic,
+      currentAmps: current,
+      peakAccelG: accel,
+      sensorHealth: 'Connected',
+      machineCondition: readingCondition,
+      isSimulated: true,
+    });
+  }
+  return readings;
+}
+
+export function createInitialMachines(allNormal = false): Machine[] {
+  const pumpReadings = buildInitialReadings(
+    2.08, 0.14, 0.05, 43.8, 0.5, 0.2, 62.4, 0.4, 9.2, 0.1, 'NORMAL'
+  );
+  const motorReadings = allNormal
+    ? buildInitialReadings(3.04, 0.12, 0.04, 54.8, 0.5, 0.2, 68.2, 0.3, 18.2, 0.1, 'NORMAL')
+    : buildInitialReadings(3.05, 0.14, 0.72, 55.2, 0.6, 5.4, 68.4, 4.2, 18.2, 1.4, 'WARNING');
+  const fanReadings = buildInitialReadings(
+    1.58, 0.12, 0.03, 38.2, 0.4, 0.2, 58.6, 0.2, 5.4, 0.1, 'NORMAL'
+  );
+
+  const lastPump = pumpReadings[pumpReadings.length - 1];
+  const lastMotor = motorReadings[motorReadings.length - 1];
+  const lastFan = fanReadings[fanReadings.length - 1];
+
+  return [
+    {
+      id: 'PUMP-001',
+      name: 'Water Pump',
+      category: 'Centrifugal Circulation Pump',
+      type: 'pump',
+      location: 'Simulated Bay A · Loop 1',
+      ratedRpm: 1450,
+      powerRating: '7.5 kW',
+      healthStatus: 'NORMAL',
+      sensorHealth: 'Connected',
+      sensorIssueDetail: null,
+      statusSummary:
+        'Simulated vibration, housing temperature, acoustic level, and current remain within the demonstration baseline envelope.',
+      activeScenario: 'healthy',
+      scenarioRunning: false,
+      scenarioPaused: false,
+      scenarioStep: 0,
+      sensorFaultMode: 'missing',
+      latestVibrationMmS: lastPump.vibrationMmS,
+      latestTemperatureC: lastPump.temperatureC,
+      latestAcousticDb: lastPump.acousticDb,
+      latestCurrentAmps: lastPump.currentAmps,
+      latestPeakAccelG: lastPump.peakAccelG,
+      lastUpdated: lastPump.timestamp,
+      fingerprint: {
+        status: 'Ready for Monitoring',
+        healthyConfirmed: true,
+        confirmedBy: 'Demo Operator',
+        isDemonstrationBaseline: true,
+        vibrationMinMmS: 1.75,
+        vibrationMaxMmS: 2.55,
+        vibrationMeanMmS: 2.12,
+        temperatureMinC: 40.0,
+        temperatureMaxC: 48.0,
+        temperatureMeanC: 44.1,
+        acousticMinDb: 59.0,
+        acousticMaxDb: 66.0,
+        acousticMeanDb: 62.5,
+        currentMinAmps: 8.2,
+        currentMaxAmps: 10.4,
+        currentMeanAmps: 9.2,
+        learningProgress: 100,
+        samplesCollected: 12,
+        samplesRequired: 12,
+        learningBufferVib: [],
+        learningBufferTemp: [],
+        learningBufferAcoustic: [],
+        learningBufferCurrent: [],
+        lastUpdated: new Date(Date.now() - 1000 * 60 * 42).toISOString(),
+      },
+      readings: pumpReadings,
+    },
+    {
+      id: 'MOTOR-001',
+      name: 'Industrial Motor',
+      category: 'Three-Phase Induction Drive',
+      type: 'motor',
+      location: 'Simulated Bay B · Line 2',
+      ratedRpm: 1780,
+      powerRating: '15.0 kW',
+      healthStatus: allNormal ? 'NORMAL' : 'WARNING',
+      sensorHealth: 'Connected',
+      sensorIssueDetail: null,
+      statusSummary: allNormal
+        ? 'Restored to nominal operation. Simulated parameters remain inside the demonstration baseline envelope.'
+        : 'Persistent mild elevation in casing temperature and RMS vibration above the illustrative baseline range.',
+      activeScenario: allNormal ? 'healthy' : 'gradual_vibration',
+      scenarioRunning: false,
+      scenarioPaused: false,
+      scenarioStep: allNormal ? 0 : 2,
+      sensorFaultMode: 'missing',
+      latestVibrationMmS: lastMotor.vibrationMmS,
+      latestTemperatureC: lastMotor.temperatureC,
+      latestAcousticDb: lastMotor.acousticDb,
+      latestCurrentAmps: lastMotor.currentAmps,
+      latestPeakAccelG: lastMotor.peakAccelG,
+      lastUpdated: lastMotor.timestamp,
+      fingerprint: {
+        status: 'Ready for Monitoring',
+        healthyConfirmed: true,
+        confirmedBy: 'Demo Operator',
+        isDemonstrationBaseline: true,
+        vibrationMinMmS: 2.6,
+        vibrationMaxMmS: 3.55,
+        vibrationMeanMmS: 3.08,
+        temperatureMinC: 51.0,
+        temperatureMaxC: 59.0,
+        temperatureMeanC: 55.0,
+        acousticMinDb: 65.0,
+        acousticMaxDb: 72.0,
+        acousticMeanDb: 68.5,
+        currentMinAmps: 16.5,
+        currentMaxAmps: 19.8,
+        currentMeanAmps: 18.2,
+        learningProgress: 100,
+        samplesCollected: 12,
+        samplesRequired: 12,
+        learningBufferVib: [],
+        learningBufferTemp: [],
+        learningBufferAcoustic: [],
+        learningBufferCurrent: [],
+        lastUpdated: new Date(Date.now() - 1000 * 60 * 65).toISOString(),
+      },
+      readings: motorReadings,
+    },
+    {
+      id: 'FAN-001',
+      name: 'Cooling Fan',
+      category: 'Axial Exhaust Blower',
+      type: 'fan',
+      location: 'Simulated Bay C · Exhaust Duct',
+      ratedRpm: 1180,
+      powerRating: '4.0 kW',
+      healthStatus: 'NORMAL',
+      sensorHealth: 'Connected',
+      sensorIssueDetail: null,
+      statusSummary:
+        'Simulated airflow load, acoustic signature, and shaft vibration tracking inside the demonstration baseline envelope.',
+      activeScenario: 'healthy',
+      scenarioRunning: false,
+      scenarioPaused: false,
+      scenarioStep: 0,
+      sensorFaultMode: 'missing',
+      latestVibrationMmS: lastFan.vibrationMmS,
+      latestTemperatureC: lastFan.temperatureC,
+      latestAcousticDb: lastFan.acousticDb,
+      latestCurrentAmps: lastFan.currentAmps,
+      latestPeakAccelG: lastFan.peakAccelG,
+      lastUpdated: lastFan.timestamp,
+      fingerprint: {
+        status: 'Ready for Monitoring',
+        healthyConfirmed: true,
+        confirmedBy: 'Demo Operator',
+        isDemonstrationBaseline: true,
+        vibrationMinMmS: 1.25,
+        vibrationMaxMmS: 2.05,
+        vibrationMeanMmS: 1.61,
+        temperatureMinC: 35.0,
+        temperatureMaxC: 43.0,
+        temperatureMeanC: 38.4,
+        acousticMinDb: 55.0,
+        acousticMaxDb: 62.0,
+        acousticMeanDb: 58.5,
+        currentMinAmps: 4.8,
+        currentMaxAmps: 6.2,
+        currentMeanAmps: 5.4,
+        learningProgress: 100,
+        samplesCollected: 12,
+        samplesRequired: 12,
+        learningBufferVib: [],
+        learningBufferTemp: [],
+        learningBufferAcoustic: [],
+        learningBufferCurrent: [],
+        lastUpdated: new Date(Date.now() - 1000 * 60 * 28).toISOString(),
+      },
+      readings: fanReadings,
+    },
+  ];
+}
+
+export function createResetMachines(): Machine[] {
+  return createInitialMachines(true);
+}
+
+export function createInitialAlerts(): AlertEvent[] {
+  const now = Date.now();
+  return [
+    {
+      id: 'ALT-1042',
+      timestamp: new Date(now - 1000 * 60 * 18).toISOString(),
+      machineId: 'MOTOR-001',
+      machineName: 'Industrial Motor',
+      alertType: 'Early Drift Notice',
+      severity: 'Warning',
+      triggeringParameter: 'Temperature (°C) & Vibration RMS (mm/s)',
+      observedReading: '60.6 °C · 3.77 mm/s',
+      thresholdReference: 'Temp ceiling 59.0 °C · Vib ceiling 3.55 mm/s',
+      baselineComparison:
+        '60.6 °C vs baseline ceiling 59.0 °C (+1.6 °C); 3.77 mm/s vs ceiling 3.55 mm/s (+6%).',
+      whatChanged:
+        'Simulated casing temperature and vibration drifted modestly above the demonstration upper bound.',
+      persistenceSummary: 'Observed across 4 consecutive simulated samples.',
+      suggestedInspection:
+        'Recommended inspection: Check bearings, mounting alignment, cooling airflow louvers, and motor load during routine rounds.',
+      reason:
+        'Simulated casing temperature and vibration drifted modestly above the demonstration upper bound across 4 samples.',
+      status: 'Acknowledged',
+      occurrenceCount: 1,
+      isSimulated: true,
+    },
+    {
+      id: 'ALT-1041',
+      timestamp: new Date(now - 1000 * 60 * 135).toISOString(),
+      machineId: 'PUMP-001',
+      machineName: 'Water Pump',
+      alertType: 'Transient Fluctuation',
+      severity: 'Info',
+      triggeringParameter: 'Vibration RMS (mm/s)',
+      observedReading: '2.98 mm/s (single spike)',
+      thresholdReference: 'Persistence requires ≥ 2 readings above 2.67 mm/s',
+      baselineComparison: '2.98 mm/s vs baseline mean 2.12 mm/s (+41%, ceiling 2.55 mm/s).',
+      whatChanged: 'Single simulated vibration spike occurred and returned to normal within 2 samples.',
+      persistenceSummary: 'Non-persistent (1 reading); filtered without CRITICAL escalation.',
+      suggestedInspection:
+        'Suggested check: Verify suction line pressure stability if recurrence is noticed.',
+      reason:
+        'Brief simulated vibration fluctuation subsided within 2 sampling cycles without sustained drift.',
+      status: 'Resolved',
+      occurrenceCount: 1,
+      isSimulated: true,
+    },
+    {
+      id: 'ALT-1040',
+      timestamp: new Date(now - 1000 * 60 * 320).toISOString(),
+      machineId: 'FAN-001',
+      machineName: 'Cooling Fan',
+      alertType: 'Baseline Verified',
+      severity: 'Info',
+      triggeringParameter: 'Baseline Calibration',
+      observedReading: '1.61 mm/s · 38.4 °C',
+      thresholdReference: '12 healthy baseline samples verified',
+      baselineComparison: 'Mean 1.61 mm/s · 38.4 °C established from 12 simulated windows.',
+      whatChanged: 'Operator completed demonstration baseline verification.',
+      persistenceSummary: '12 of 12 healthy learning samples confirmed.',
+      suggestedInspection:
+        'No mechanical inspection required; machine ready for simulated monitoring.',
+      reason:
+        'Demonstration baseline verified by operator after 12 simulated healthy operating windows.',
+      status: 'Resolved',
+      occurrenceCount: 1,
+      isSimulated: true,
+    },
+  ];
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  operatorName: 'Demo Operator',
+  operatorRole: 'Condition Monitoring Reviewer',
+  workspaceLabel: 'Prototype Simulation Environment',
+  inAppNotifications: true,
+  warningEscalation: true,
+  correlateVibAndTemp: true,
+  emailDigestPreview: false,
+  sensitivity: 'Standard',
+};
+
+export const SIMULATION_SCENARIOS: ScenarioDefinition[] = [
+  {
+    id: 'healthy',
+    code: 'A',
+    title: 'Healthy Operation',
+    description:
+      'Generates simulated vibration, temperature, acoustic, and current readings inside the machine’s illustrative baseline range.',
+    expectedOutcome: 'Machine status settles to NORMAL with Connected sensor health and high health score.',
+    effectLabel: 'Nominal Baseline',
+  },
+  {
+    id: 'gradual_vibration',
+    code: 'B',
+    title: 'Gradual Vibration Increase',
+    description:
+      'Increases vibration gradually over multiple readings to demonstrate moving-average filtering and persistence-based escalation.',
+    expectedOutcome:
+      'Transitions NORMAL → WARNING after sustained drift, recommending inspection of bearings, mounting, and alignment.',
+    effectLabel: 'Progressive Drift',
+  },
+  {
+    id: 'overheating',
+    code: 'C',
+    title: 'Overheating',
+    description:
+      'Gradually raises simulated operating temperature beyond the machine’s thermal baseline ceiling.',
+    expectedOutcome:
+      'Triggers WARNING on sustained thermal rise and CRITICAL on severe heat buildup; recommends checking cooling, lubrication, and load.',
+    effectLabel: 'Thermal Rise',
+  },
+  {
+    id: 'combined_anomaly',
+    code: 'D',
+    title: 'Combined Anomaly',
+    description:
+      'Increases simulated vibration and temperature together so correlation rules detect compounding deviation.',
+    expectedOutcome:
+      'Escalates to CRITICAL faster when vibration-temperature correlation is enabled and recommends immediate inspection.',
+    effectLabel: 'Correlated Fault',
+  },
+  {
+    id: 'temporary_fluctuation',
+    code: 'E',
+    title: 'Temporary Fluctuation',
+    description:
+      'Introduces a brief 1-reading spike and then returns to nominal values, showing why moving-average filtering and persistence checks prevent false alarms.',
+    expectedOutcome:
+      'Logs an Info notice without triggering a false CRITICAL escalation.',
+    effectLabel: 'Non-Persistent Spike',
+  },
+  {
+    id: 'sensor_disconnection',
+    code: 'F',
+    title: 'Sensor Disconnection',
+    description:
+      'Simulates missing, frozen, or invalid sensor readings so missing data is never treated as zero or healthy.',
+    expectedOutcome:
+      'Flags SENSOR DISCONNECTED / SENSOR ISSUE separately from machine failure and logs a communication warning.',
+    effectLabel: 'Signal Integrity',
+  },
+];
